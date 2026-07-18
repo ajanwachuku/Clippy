@@ -106,17 +106,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
 
-        // Make the popover a non-activating panel and never make it key. Clicking a row then
-        // never activates Clippy nor gives its window keyboard focus, so the app being pasted
-        // into stays frontmost and the synthesized ⌘V is always delivered there — never to
-        // Clippy itself. Combined with there being no text field in the popover, a paste can
-        // never land in Clippy's own UI.
-        if let window = popover.contentViewController?.view.window {
-            window.styleMask.insert(.nonactivatingPanel)
-        }
+        // Normal (activating) popover. When a paste activates the target app, Clippy becomes
+        // inactive and relinquishes its key window, so the synthesized ⌘V is delivered to the
+        // target app. (A non-activating panel keeps key status even while another app is
+        // frontmost, so it would swallow the keystroke — the "no field" error beep.)
+        NSApp.activate(ignoringOtherApps: true)
+        popover.contentViewController?.view.window?.makeKey()
 
-        // Close on Escape. The panel is intentionally never key, so cover both cases: a local
-        // monitor for when Clippy happens to be active, and a global one for when it isn't.
+        // Close on Escape: a local monitor for when Clippy is active, a global one otherwise.
         let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { self?.closePopover(); return nil }
             return event
@@ -159,26 +156,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let targetApp = previousApp else { return }
 
         Task {
-            // Clicking a row activates Clippy (its search field may be first responder),
-            // so a fixed delay races Clippy's own activation and the ⌘V can land in
-            // Clippy instead. Poll until the target app is genuinely frontmost, and only
-            // then synthesize the paste — guaranteeing it never lands in our own UI.
-            for _ in 0..<25 {
-                targetApp.activate()
-                if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier {
-                    break
+            // Clicking a row can momentarily re-activate Clippy, racing our own attempt to
+            // hand focus back. So keep nudging the target frontmost, and only fire ⌘V once
+            // it is confirmed frontmost both after a settle delay AND immediately before the
+            // keystroke. If it never stabilizes we give up quietly rather than paste into
+            // (or beep at) Clippy. Up to ~1.4s of attempts.
+            for _ in 0..<40 {
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier else {
+                    targetApp.activate()
+                    try? await Task.sleep(for: .milliseconds(35))
+                    continue
                 }
-                try? await Task.sleep(for: .milliseconds(40))
-            }
 
-            // Bail rather than paste into the wrong place if the target never came forward.
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier else {
-                return
+                // Target is frontmost: let its focused field settle, then re-verify.
+                try? await Task.sleep(for: .milliseconds(50))
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier {
+                    Paster.simulateCommandV()
+                    return
+                }
             }
-
-            // Small settle so the app's focused text field is ready to receive the paste.
-            try? await Task.sleep(for: .milliseconds(60))
-            Paster.simulateCommandV()
         }
     }
 }
