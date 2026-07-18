@@ -66,6 +66,12 @@ extension ClipboardItem {
         return .text
     }
 
+    /// A short prefix for row display, so very large entries never lay out in full.
+    /// (Rows show at most two lines; 300 characters is always enough to fill them.)
+    var previewText: String {
+        String(text.prefix(300))
+    }
+
     /// A short size label for the row metadata (line count for multi-line, else characters).
     var metricLabel: String {
         let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count

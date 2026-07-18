@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 /// A panel that can never become the key or main window.
@@ -17,6 +18,12 @@ import SwiftUI
 final class ClipboardPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+}
+
+extension Notification.Name {
+    /// Posted each time the panel is ordered front, so SwiftUI content can refresh
+    /// state that may have changed while it was hidden (e.g. the login item toggle).
+    static let clippyPanelDidOpen = Notification.Name("ClippyPanelDidOpen")
 }
 
 /// Owns the menu bar status item, the panel, the store, and the clipboard monitor.
@@ -31,12 +38,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The last app (other than Clippy) that was frontmost — the paste target.
     private var previousApp: NSRunningApplication?
 
+    /// Escape-to-close hot key, registered only while the panel is visible.
+    private var escapeHotKeyID: UInt32?
+
+    /// Whether we've already shown the Accessibility prompt this session, so a
+    /// permission-less click doesn't reopen System Settings on every paste attempt.
+    private var didPromptForAccessibility = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as a menu bar agent: no Dock icon, no main window.
         NSApp.setActivationPolicy(.accessory)
 
+        // Seed the paste target with whatever was frontmost at launch, so pasting
+        // works even before the first app switch is observed.
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp = front
+        }
+
         setupStatusItem()
         setupPanel()
+        setupHotKey()
         observeActiveApp()
         monitor.start()
     }
@@ -83,6 +105,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.panel = panel
     }
 
+    /// ⌥⌘V from anywhere toggles the panel, so the user never has to reach for the
+    /// menu bar mid-typing. (Note: this shadows Finder's "Move Item Here" while
+    /// Clippy runs; change the combination here if that bites.)
+    private func setupHotKey() {
+        HotKeyCenter.shared.register(
+            keyCode: kVK_ANSI_V,
+            carbonModifiers: cmdKey | optionKey
+        ) { [weak self] in
+            self?.togglePanel()
+        }
+    }
+
     /// Continuously remembers the last non-Clippy app to become frontmost, so we always
     /// know where to paste.
     private func observeActiveApp() {
@@ -105,8 +139,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Panel
 
-    /// Toggles the panel: opens it if hidden, closes it if shown. This is the only way to
-    /// close it — clicking elsewhere (e.g. into your document) deliberately leaves it open.
+    /// Toggles the panel: opens it if hidden, closes it if shown. It closes only via
+    /// this toggle (status item / ⌥⌘V) or Escape — clicking elsewhere (e.g. into your
+    /// document) deliberately leaves it open for multi-paste.
     @objc private func togglePanel() {
         guard let panel else { return }
         if panel.isVisible {
@@ -137,10 +172,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Order front WITHOUT activating Clippy or making the panel key, so the target app
         // keeps keyboard focus.
         panel.orderFrontRegardless()
+        NotificationCenter.default.post(name: .clippyPanelDidOpen, object: nil)
+
+        // The panel never becomes key, so it can't receive keyDown events directly.
+        // A transient Escape hot key stands in: while the panel is open, Escape closes
+        // it (and is consumed system-wide); it's unregistered the moment the panel closes.
+        if escapeHotKeyID == nil {
+            escapeHotKeyID = HotKeyCenter.shared.register(
+                keyCode: kVK_Escape,
+                carbonModifiers: 0
+            ) { [weak self] in
+                self?.closePanel()
+            }
+        }
     }
 
     private func closePanel() {
         panel?.orderOut(nil)
+        if let id = escapeHotKeyID {
+            HotKeyCenter.shared.unregister(id)
+            escapeHotKeyID = nil
+        }
     }
 
     // MARK: - Paste
@@ -150,20 +202,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The panel is left open so several items can be pasted in a row; it closes only via
     /// the status-item toggle.
     private func paste(_ item: ClipboardItem) {
-        // Check permissions FIRST before modifying the pasteboard.
-        guard AccessibilityPermission.isTrusted else {
-            // First paste attempt without permission: prompt and point to Settings.
-            AccessibilityPermission.request()
-            AccessibilityPermission.openSettings()
-            return
-        }
-
-        // Make the selection the current clipboard content so a paste (manual or
-        // synthesized) inserts it. Suppress so the monitor ignores our own write.
+        // Always make the selection the current clipboard content first, so even
+        // without the Accessibility permission a click still "copies" the item and
+        // the user can ⌘V manually. Suppress so the monitor ignores our own write.
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(item.text, forType: .string)
         monitor.suppressCurrentChange()
+
+        // Without the permission we can't synthesize ⌘V; prompt once per session.
+        guard AccessibilityPermission.isTrusted else {
+            if !didPromptForAccessibility {
+                didPromptForAccessibility = true
+                AccessibilityPermission.request()
+                AccessibilityPermission.openSettings()
+            }
+            return
+        }
 
         guard let targetApp = previousApp else { return }
 

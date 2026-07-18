@@ -16,15 +16,20 @@ enum LoginItem {
     }
 
     /// Registers or unregisters Clippy as a login item.
-    static func setEnabled(_ enabled: Bool) {
+    ///
+    /// - Returns: whether the change took effect, so the UI can revert its toggle
+    ///   instead of showing a state that isn't true.
+    @discardableResult
+    static func setEnabled(_ enabled: Bool) -> Bool {
         do {
             if enabled {
                 try SMAppService.mainApp.register()
             } else {
                 try SMAppService.mainApp.unregister()
             }
+            return true
         } catch {
-            // Non-fatal: the toggle simply won't take effect this time.
+            return false
         }
     }
 }

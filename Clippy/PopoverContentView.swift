@@ -159,7 +159,16 @@ struct PopoverContentView: View {
                 .toggleStyle(.checkbox)
                 .font(.caption)
                 .onChange(of: launchAtLogin) { _, newValue in
-                    LoginItem.setEnabled(newValue)
+                    // Skip no-op changes (e.g. the refresh below resyncing the state).
+                    guard newValue != LoginItem.isEnabled else { return }
+                    if !LoginItem.setEnabled(newValue) {
+                        // Registration failed — show the true state, not the wish.
+                        launchAtLogin = LoginItem.isEnabled
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .clippyPanelDidOpen)) { _ in
+                    // The user may have changed this in System Settings while we were hidden.
+                    launchAtLogin = LoginItem.isEnabled
                 }
 
             Spacer()
@@ -203,7 +212,7 @@ private struct ClipboardRow: View {
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.text)
+                Text(item.previewText)
                     .font(kind == .code ? .system(size: 12.5, design: .monospaced) : .callout)
                     .lineLimit(2)
                     .truncationMode(.tail)

@@ -21,7 +21,9 @@ final class ClipboardStore {
     /// Maximum number of items retained; oldest fall off the end.
     private let maxItems = 50
 
-    /// Upper bound on the length of a single stored string (very large pastes are truncated).
+    /// Upper bound on the length of a single stored string. Oversize copies are
+    /// skipped entirely rather than truncated — a truncated entry would paste
+    /// different text than the user copied.
     private let maxTextLength = 100_000
 
     private let saveURL: URL
@@ -40,15 +42,15 @@ final class ClipboardStore {
 
     /// Adds a newly copied string to the top of the history.
     ///
-    /// Skips empty / whitespace-only strings and consecutive duplicates of the most recent entry.
+    /// Skips empty / whitespace-only and oversize strings. Re-copying text that is
+    /// already anywhere in the history moves that entry to the top (with a fresh
+    /// timestamp) instead of storing a duplicate.
     func add(_ text: String) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard text.count <= maxTextLength else { return }
 
-        // Skip consecutive duplicates of the most recent entry.
-        if let mostRecent = items.first, mostRecent.text == text { return }
-
-        let stored = String(text.prefix(maxTextLength))
-        items.insert(ClipboardItem(text: stored), at: 0)
+        items.removeAll { $0.text == text }
+        items.insert(ClipboardItem(text: text), at: 0)
 
         if items.count > maxItems {
             items.removeLast(items.count - maxItems)
