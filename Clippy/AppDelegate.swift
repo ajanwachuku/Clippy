@@ -128,6 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Paste
 
     /// Places the item back on the pasteboard and pastes it into the previous app.
+    ///
+    /// The popover is intentionally left open so several items can be pasted in a row.
+    /// It only closes when the user clicks outside it or toggles the status item.
     private func paste(_ item: ClipboardItem) {
         // Check permissions FIRST before modifying the pasteboard.
         guard AccessibilityPermission.isTrusted else {
@@ -144,9 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pasteboard.setString(item.text, forType: .string)
         monitor.suppressCurrentChange()
 
-        // Close the popover and hand focus back to the target app, then paste into it.
-        closePopover()
-
+        // Hand focus back to the target app and paste into it, leaving the popover open.
         guard let targetApp = previousApp else { return }
         targetApp.activate()
 

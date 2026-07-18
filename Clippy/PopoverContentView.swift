@@ -248,7 +248,6 @@ private struct ClipboardRow: View {
     var onDelete: () -> Void
 
     @State private var isHovered = false
-    @State private var didCopy = false
 
     private var kind: ClipboardItem.Kind { item.kind }
 
@@ -278,28 +277,16 @@ private struct ClipboardRow: View {
                 .foregroundStyle(.tertiary)
             }
 
-            // Actions reveal on hover.
+            // Delete reveals on hover.
             if isHovered {
-                HStack(spacing: 2) {
-                    Button(action: copy) {
-                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(didCopy ? AnyShapeStyle(Color.green) : AnyShapeStyle(.secondary))
-                            .frame(width: 20, height: 20)
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Copy")
-
-                    Button(action: onDelete) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Delete")
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
                 }
+                .buttonStyle(.plain)
+                .help("Delete")
                 .transition(.scale(scale: 0.7).combined(with: .opacity))
             }
         }
@@ -309,6 +296,9 @@ private struct ClipboardRow: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(isHovered ? AnyShapeStyle(Color.accentColor.opacity(0.12))
                                 : AnyShapeStyle(Color.primary.opacity(0.045)))
+                // Shadow lives on the background shape only, so hovering never casts a
+                // drop shadow over the row's text (which read as a darkening in dark mode).
+                .shadow(color: .black.opacity(isHovered ? 0.12 : 0), radius: 5, y: 2)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -317,23 +307,10 @@ private struct ClipboardRow: View {
                     lineWidth: 1
                 )
         )
-        .shadow(color: .black.opacity(isHovered ? 0.12 : 0), radius: 5, y: 2)
         .scaleEffect(isHovered ? 1.012 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onPaste)
         .onHover { isHovered = $0 }
         .animation(.spring(response: 0.28, dampingFraction: 0.7), value: isHovered)
-        .animation(.easeInOut(duration: 0.2), value: didCopy)
-    }
-
-    /// Copies the entry's text to the pasteboard and shows a brief confirmation.
-    private func copy() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(item.text, forType: .string)
-        didCopy = true
-        Task {
-            try? await Task.sleep(for: .seconds(1.2))
-            didCopy = false
-        }
     }
 }
