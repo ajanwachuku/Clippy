@@ -24,9 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// popover opens the "frontmost" app is already us, and the real target is lost.
     private var previousApp: NSRunningApplication?
 
-    /// Monitors clicks outside Clippy so the popover can dismiss itself like a native one,
-    /// without the status-item double-toggle that `.transient` behavior would cause.
-    private var outsideClickMonitor: Any?
+    /// Event monitors (local + global) active only while the popover is open, used to
+    /// close it on the Escape key. The popover is otherwise dismissed via the status item.
+    private var eventMonitors: [Any] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as a menu bar agent: no Dock icon, no main window.
@@ -57,10 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPopover() {
-        // Application-defined (not `.transient`) so the status-item click reliably toggles
-        // open/close. Click-away dismissal is handled by `outsideClickMonitor` instead,
-        // which avoids the double-fire where a transient popover closes on the same click
-        // that then re-triggers the button action and reopens it.
+        // Application-defined so the popover never auto-closes: it stays open across pastes
+        // and dismisses only via the status-item toggle or the Escape key. This deliberately
+        // avoids click-away dismissal so clicking into your document to place the cursor
+        // doesn't make Clippy vanish.
         popover.behavior = .applicationDefined
         popover.animates = true
         popover.contentSize = NSSize(width: 340, height: 460)
@@ -105,26 +105,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openPopover() {
         guard let button = statusItem?.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        // Activate normally so the popover is key. When a paste later activates the target
-        // app, Clippy resigns key and the synthesized ⌘V is delivered to that app — unlike
-        // a non-activating panel, which stays key and swallows the keystroke itself.
-        NSApp.activate(ignoringOtherApps: true)
-        popover.contentViewController?.view.window?.makeKey()
 
-        // Start watching for clicks outside Clippy so we can dismiss like a native popover.
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
-            self?.closePopover()
+        // Make the popover a non-activating panel and never make it key. Clicking a row then
+        // never activates Clippy nor gives its window keyboard focus, so the app being pasted
+        // into stays frontmost and the synthesized ⌘V is always delivered there — never to
+        // Clippy itself. Combined with there being no text field in the popover, a paste can
+        // never land in Clippy's own UI.
+        if let window = popover.contentViewController?.view.window {
+            window.styleMask.insert(.nonactivatingPanel)
         }
+
+        // Close on Escape. The panel is intentionally never key, so cover both cases: a local
+        // monitor for when Clippy happens to be active, and a global one for when it isn't.
+        let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { self?.closePopover(); return nil }
+            return event
+        }
+        let global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { self?.closePopover() }
+        }
+        eventMonitors = [local, global].compactMap { $0 }
     }
 
     private func closePopover() {
         popover.performClose(nil)
-        if let monitor = outsideClickMonitor {
-            NSEvent.removeMonitor(monitor)
-            outsideClickMonitor = nil
-        }
+        eventMonitors.forEach(NSEvent.removeMonitor)
+        eventMonitors.removeAll()
     }
 
     // MARK: - Paste
@@ -132,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Places the item back on the pasteboard and pastes it into the previous app.
     ///
     /// The popover is intentionally left open so several items can be pasted in a row.
-    /// It only closes when the user clicks outside it or toggles the status item.
+    /// It only closes via the status-item toggle or the Escape key.
     private func paste(_ item: ClipboardItem) {
         // Check permissions FIRST before modifying the pasteboard.
         guard AccessibilityPermission.isTrusted else {

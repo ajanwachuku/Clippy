@@ -8,11 +8,15 @@
 //  SF Symbols, spring physics, and restrained micro-interactions — polished without
 //  fighting the system look.
 //
+//  Note: there is deliberately no text field in this view. The popover is a
+//  non-activating panel, and any focusable text input could capture the synthesized
+//  ⌘V paste keystroke, so the list has no search box.
+//
 
 import SwiftUI
 import AppKit
 
-/// The clipboard history list, live search, hover actions, and footer controls.
+/// The clipboard history list, hover actions, and footer controls.
 struct PopoverContentView: View {
 
     let store: ClipboardStore
@@ -22,24 +26,10 @@ struct PopoverContentView: View {
 
     @State private var showingClearConfirmation = false
     @State private var launchAtLogin = LoginItem.isEnabled
-    @State private var query = ""
-    @FocusState private var searchFocused: Bool
-
-    /// History filtered by the live search query (case-insensitive substring).
-    private var filteredItems: [ClipboardItem] {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return store.items }
-        return store.items.filter { $0.text.localizedCaseInsensitiveContains(trimmed) }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-
-            if !store.items.isEmpty {
-                searchField
-                Divider().opacity(0.5)
-            }
 
             content
 
@@ -48,7 +38,6 @@ struct PopoverContentView: View {
         .frame(width: 340, height: 460)
         .background(.regularMaterial)
         .animation(.spring(response: 0.34, dampingFraction: 0.82), value: store.items)
-        .animation(.easeOut(duration: 0.18), value: query)
     }
 
     // MARK: - Content switch
@@ -57,8 +46,6 @@ struct PopoverContentView: View {
     private var content: some View {
         if store.items.isEmpty {
             emptyState
-        } else if filteredItems.isEmpty {
-            noResultsState
         } else {
             historyList
         }
@@ -117,50 +104,12 @@ struct PopoverContentView: View {
         .padding(.bottom, 10)
     }
 
-    // MARK: - Search
-
-    private var searchField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-
-            TextField("Search history", text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .focused($searchFocused)
-                .onSubmit {
-                    if let first = filteredItems.first { onPaste(first) }
-                }
-
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.quaternary.opacity(0.5))
-        )
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
-    }
-
     // MARK: - History
 
     private var historyList: some View {
         ScrollView {
             LazyVStack(spacing: 6) {
-                ForEach(filteredItems) { item in
+                ForEach(store.items) { item in
                     ClipboardRow(item: item) {
                         onPaste(item)
                     } onDelete: {
@@ -173,13 +122,13 @@ struct PopoverContentView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.top, 4)
+            .padding(.top, 8)
             .padding(.bottom, 12)
         }
         .scrollIndicators(.never)
     }
 
-    // MARK: - Empty & no-results states
+    // MARK: - Empty state
 
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -193,18 +142,6 @@ struct PopoverContentView: View {
             Text("Copy something and it'll show up here.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var noResultsState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(.tertiary)
-            Text("No matches for “\(query)”")
-                .font(.callout)
-                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
