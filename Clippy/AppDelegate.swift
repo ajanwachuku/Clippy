@@ -149,11 +149,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Hand focus back to the target app and paste into it, leaving the popover open.
         guard let targetApp = previousApp else { return }
-        targetApp.activate()
 
         Task {
-            // Give the target app time to become frontmost and focus a text field.
-            try? await Task.sleep(for: .milliseconds(180))
+            // Clicking a row activates Clippy (its search field may be first responder),
+            // so a fixed delay races Clippy's own activation and the ⌘V can land in
+            // Clippy instead. Poll until the target app is genuinely frontmost, and only
+            // then synthesize the paste — guaranteeing it never lands in our own UI.
+            for _ in 0..<25 {
+                targetApp.activate()
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+
+            // Bail rather than paste into the wrong place if the target never came forward.
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier else {
+                return
+            }
+
+            // Small settle so the app's focused text field is ready to receive the paste.
+            try? await Task.sleep(for: .milliseconds(60))
             Paster.simulateCommandV()
         }
     }
