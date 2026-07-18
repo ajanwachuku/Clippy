@@ -105,16 +105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openPopover() {
         guard let button = statusItem?.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-
-        // Make the popover's window a non-activating panel: clicking rows then registers
-        // on the first click and never steals focus from the app being pasted into, so
-        // the target stays frontmost and consecutive pastes work without a re-activating
-        // click. `_NSPopoverWindow` is an NSPanel subclass, so the style bit applies.
-        if let window = popover.contentViewController?.view.window {
-            window.styleMask.insert(.nonactivatingPanel)
-            // Become key (without activating the app) so the search field can still type.
-            window.makeKey()
-        }
+        // Activate normally so the popover is key. When a paste later activates the target
+        // app, Clippy resigns key and the synthesized ⌘V is delivered to that app — unlike
+        // a non-activating panel, which stays key and swallows the keystroke itself.
+        NSApp.activate(ignoringOtherApps: true)
+        popover.contentViewController?.view.window?.makeKey()
 
         // Start watching for clicks outside Clippy so we can dismiss like a native popover.
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
