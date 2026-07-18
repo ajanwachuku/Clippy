@@ -70,7 +70,7 @@ struct PopoverContentView: View {
                         .shadow(color: Color.accentColor.opacity(0.35), radius: 3, y: 1)
                 )
 
-            Text("Clipboard")
+            Text("Clippy")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
 
             if !store.items.isEmpty {
