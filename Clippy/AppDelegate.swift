@@ -24,9 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// popover opens the "frontmost" app is already us, and the real target is lost.
     private var previousApp: NSRunningApplication?
 
-    /// Event monitors (local + global) active only while the popover is open, used to
-    /// close it on the Escape key. The popover is otherwise dismissed via the status item.
-    private var eventMonitors: [Any] = []
+    /// Monitors clicks outside Clippy so the popover can dismiss itself like a native one,
+    /// without the status-item double-toggle that `.transient` behavior would cause.
+    private var outsideClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as a menu bar agent: no Dock icon, no main window.
@@ -57,10 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPopover() {
-        // Application-defined so the popover never auto-closes: it stays open across pastes
-        // and dismisses only via the status-item toggle or the Escape key. This deliberately
-        // avoids click-away dismissal so clicking into your document to place the cursor
-        // doesn't make Clippy vanish.
+        // Application-defined (not `.transient`) so the status-item click reliably toggles
+        // open/close. Click-away dismissal is handled by `outsideClickMonitor` instead,
+        // which avoids the double-fire where a transient popover closes on the same click
+        // that then re-triggers the button action and reopens it.
         popover.behavior = .applicationDefined
         popover.animates = true
         popover.contentSize = NSSize(width: 340, height: 460)
@@ -105,37 +105,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openPopover() {
         guard let button = statusItem?.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-
-        // Normal (activating) popover. When a paste activates the target app, Clippy becomes
-        // inactive and relinquishes its key window, so the synthesized ⌘V is delivered to the
-        // target app. (A non-activating panel keeps key status even while another app is
-        // frontmost, so it would swallow the keystroke — the "no field" error beep.)
+        // Bring the popover forward and make it key so it's interactive immediately.
         NSApp.activate(ignoringOtherApps: true)
         popover.contentViewController?.view.window?.makeKey()
 
-        // Close on Escape: a local monitor for when Clippy is active, a global one otherwise.
-        let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { self?.closePopover(); return nil }
-            return event
+        // Start watching for clicks outside Clippy so we can dismiss like a native popover.
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            self?.closePopover()
         }
-        let global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { self?.closePopover() }
-        }
-        eventMonitors = [local, global].compactMap { $0 }
     }
 
     private func closePopover() {
         popover.performClose(nil)
-        eventMonitors.forEach(NSEvent.removeMonitor)
-        eventMonitors.removeAll()
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
+        }
     }
 
     // MARK: - Paste
 
     /// Places the item back on the pasteboard and pastes it into the previous app.
-    ///
-    /// The popover is intentionally left open so several items can be pasted in a row.
-    /// It only closes via the status-item toggle or the Escape key.
     private func paste(_ item: ClipboardItem) {
         // Check permissions FIRST before modifying the pasteboard.
         guard AccessibilityPermission.isTrusted else {
@@ -152,29 +144,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pasteboard.setString(item.text, forType: .string)
         monitor.suppressCurrentChange()
 
-        // Hand focus back to the target app and paste into it, leaving the popover open.
+        // Close the popover and hand focus back to the target app, then paste into it.
+        closePopover()
+
         guard let targetApp = previousApp else { return }
+        targetApp.activate()
 
         Task {
-            // Clicking a row can momentarily re-activate Clippy, racing our own attempt to
-            // hand focus back. So keep nudging the target frontmost, and only fire ⌘V once
-            // it is confirmed frontmost both after a settle delay AND immediately before the
-            // keystroke. If it never stabilizes we give up quietly rather than paste into
-            // (or beep at) Clippy. Up to ~1.4s of attempts.
-            for _ in 0..<40 {
-                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier else {
-                    targetApp.activate()
-                    try? await Task.sleep(for: .milliseconds(35))
-                    continue
-                }
-
-                // Target is frontmost: let its focused field settle, then re-verify.
-                try? await Task.sleep(for: .milliseconds(50))
-                if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApp.processIdentifier {
-                    Paster.simulateCommandV()
-                    return
-                }
-            }
+            // Give the target app time to become frontmost and focus a text field.
+            try? await Task.sleep(for: .milliseconds(180))
+            Paster.simulateCommandV()
         }
     }
 }

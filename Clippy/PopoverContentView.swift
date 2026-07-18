@@ -8,15 +8,11 @@
 //  SF Symbols, spring physics, and restrained micro-interactions — polished without
 //  fighting the system look.
 //
-//  Note: there is deliberately no text field in this view. The popover is a
-//  non-activating panel, and any focusable text input could capture the synthesized
-//  ⌘V paste keystroke, so the list has no search box.
-//
 
 import SwiftUI
 import AppKit
 
-/// The clipboard history list, hover actions, and footer controls.
+/// The clipboard history list, live search, hover actions, and footer controls.
 struct PopoverContentView: View {
 
     let store: ClipboardStore
@@ -26,10 +22,24 @@ struct PopoverContentView: View {
 
     @State private var showingClearConfirmation = false
     @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var query = ""
+    @FocusState private var searchFocused: Bool
+
+    /// History filtered by the live search query (case-insensitive substring).
+    private var filteredItems: [ClipboardItem] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return store.items }
+        return store.items.filter { $0.text.localizedCaseInsensitiveContains(trimmed) }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+
+            if !store.items.isEmpty {
+                searchField
+                Divider().opacity(0.5)
+            }
 
             content
 
@@ -38,6 +48,7 @@ struct PopoverContentView: View {
         .frame(width: 340, height: 460)
         .background(.regularMaterial)
         .animation(.spring(response: 0.34, dampingFraction: 0.82), value: store.items)
+        .animation(.easeOut(duration: 0.18), value: query)
     }
 
     // MARK: - Content switch
@@ -46,6 +57,8 @@ struct PopoverContentView: View {
     private var content: some View {
         if store.items.isEmpty {
             emptyState
+        } else if filteredItems.isEmpty {
+            noResultsState
         } else {
             historyList
         }
@@ -104,12 +117,50 @@ struct PopoverContentView: View {
         .padding(.bottom, 10)
     }
 
+    // MARK: - Search
+
+    private var searchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            TextField("Search history", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($searchFocused)
+                .onSubmit {
+                    if let first = filteredItems.first { onPaste(first) }
+                }
+
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.quaternary.opacity(0.5))
+        )
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+    }
+
     // MARK: - History
 
     private var historyList: some View {
         ScrollView {
             LazyVStack(spacing: 6) {
-                ForEach(store.items) { item in
+                ForEach(filteredItems) { item in
                     ClipboardRow(item: item) {
                         onPaste(item)
                     } onDelete: {
@@ -122,13 +173,13 @@ struct PopoverContentView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.top, 8)
+            .padding(.top, 4)
             .padding(.bottom, 12)
         }
         .scrollIndicators(.never)
     }
 
-    // MARK: - Empty state
+    // MARK: - Empty & no-results states
 
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -142,6 +193,18 @@ struct PopoverContentView: View {
             Text("Copy something and it'll show up here.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var noResultsState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(.tertiary)
+            Text("No matches for “\(query)”")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -185,6 +248,7 @@ private struct ClipboardRow: View {
     var onDelete: () -> Void
 
     @State private var isHovered = false
+    @State private var didCopy = false
 
     private var kind: ClipboardItem.Kind { item.kind }
 
@@ -214,16 +278,28 @@ private struct ClipboardRow: View {
                 .foregroundStyle(.tertiary)
             }
 
-            // Delete reveals on hover.
+            // Actions reveal on hover.
             if isHovered {
-                Button(action: onDelete) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 20, height: 20)
+                HStack(spacing: 2) {
+                    Button(action: copy) {
+                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(didCopy ? AnyShapeStyle(Color.green) : AnyShapeStyle(.secondary))
+                            .frame(width: 20, height: 20)
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy")
+
+                    Button(action: onDelete) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete")
                 }
-                .buttonStyle(.plain)
-                .help("Delete")
                 .transition(.scale(scale: 0.7).combined(with: .opacity))
             }
         }
@@ -233,9 +309,6 @@ private struct ClipboardRow: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(isHovered ? AnyShapeStyle(Color.accentColor.opacity(0.12))
                                 : AnyShapeStyle(Color.primary.opacity(0.045)))
-                // Shadow lives on the background shape only, so hovering never casts a
-                // drop shadow over the row's text (which read as a darkening in dark mode).
-                .shadow(color: .black.opacity(isHovered ? 0.12 : 0), radius: 5, y: 2)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -244,10 +317,23 @@ private struct ClipboardRow: View {
                     lineWidth: 1
                 )
         )
+        .shadow(color: .black.opacity(isHovered ? 0.12 : 0), radius: 5, y: 2)
         .scaleEffect(isHovered ? 1.012 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onPaste)
         .onHover { isHovered = $0 }
         .animation(.spring(response: 0.28, dampingFraction: 0.7), value: isHovered)
+        .animation(.easeInOut(duration: 0.2), value: didCopy)
+    }
+
+    /// Copies the entry's text to the pasteboard and shows a brief confirmation.
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.text, forType: .string)
+        didCopy = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            didCopy = false
+        }
     }
 }
