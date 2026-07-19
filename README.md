@@ -38,11 +38,17 @@ open Clippy.xcodeproj
 
 Then press <kbd>⌘R</kbd> in Xcode. Clippy appears as a 📎 in your menu bar — there's no Dock icon and no window, that's all of it.
 
-Prefer the command line?
+That's enough to try it out. For daily use, install it properly: in Xcode choose **Product → Show Build Folder in Finder**, drag `Clippy.app` into **Applications**, and launch it from there. (An app run via <kbd>⌘R</kbd> lives in Xcode's DerivedData folder, which Xcode may clean out later — bad news if you've set it to launch at login.)
+
+Prefer the command line? This builds the app and installs it in one go:
 
 ```sh
-xcodebuild -project Clippy.xcodeproj -scheme Clippy -configuration Release build
+xcodebuild -project Clippy.xcodeproj -scheme Clippy -configuration Release -derivedDataPath /tmp/clippy-build build
+cp -R /tmp/clippy-build/Build/Products/Release/Clippy.app /Applications/
+open /Applications/Clippy.app
 ```
+
+(The build lands in `/tmp` rather than the repo folder on purpose: if you cloned into an iCloud-synced folder like Desktop or Documents, iCloud tags new files with Finder metadata that makes code signing fail with "resource fork, Finder information, or similar detritus not allowed".)
 
 No Apple ID or developer account is needed — the project is set up to sign locally ("ad-hoc") out of the box. One side effect: an ad-hoc signature changes on every rebuild, so macOS may ask you to re-grant Accessibility permission after you rebuild. If you have an Apple Developer account and want the grant to stick, select your team under Signing & Capabilities in Xcode.
 
