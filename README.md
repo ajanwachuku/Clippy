@@ -44,6 +44,8 @@ Prefer the command line?
 xcodebuild -project Clippy.xcodeproj -scheme Clippy -configuration Release build
 ```
 
+No Apple ID or developer account is needed — the project is set up to sign locally ("ad-hoc") out of the box. One side effect: an ad-hoc signature changes on every rebuild, so macOS may ask you to re-grant Accessibility permission after you rebuild. If you have an Apple Developer account and want the grant to stick, select your team under Signing & Capabilities in Xcode.
+
 **First run:** the first time you click an entry to paste, macOS asks you to grant Clippy **Accessibility** permission (System Settings → Privacy & Security → Accessibility). Clippy needs it to synthesize the <kbd>⌘V</kbd> keystroke on your behalf. Until you grant it, clicking an entry still copies it to your clipboard — you just press <kbd>⌘V</kbd> yourself.
 
 To have Clippy start with your Mac, tick **Launch at Login** at the bottom of the panel.
