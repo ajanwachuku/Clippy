@@ -131,12 +131,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showBubble()
     }
 
-    /// ⌥⌘V expands the persistent bubble from anywhere. (Note: this shadows Finder's "Move Item Here" while
-    /// Clippy runs; change the combination here if that bites.)
+    /// ⌃⌘V expands the persistent bubble from anywhere.
     private func setupHotKey() {
         HotKeyCenter.shared.register(
             keyCode: kVK_ANSI_V,
-            carbonModifiers: cmdKey | optionKey
+            carbonModifiers: cmdKey | controlKey
         ) { [weak self] in
             self?.expandPanel()
         }

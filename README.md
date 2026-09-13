@@ -19,7 +19,7 @@ Built with Swift, SwiftUI, and AppKit. No dependencies, no accounts, no network 
 - **Click to paste** — clicking an entry pastes it directly into the app you were just using.
 - **Multi-paste** — the panel deliberately stays open after a paste, so you can insert several entries in sequence.
 - **Persistent bubble** — a draggable Clippy bubble stays on screen, with a live count of saved clipboard items. Its position is remembered between launches.
-- **Global hotkey** — <kbd>⌥⌘V</kbd> expands the bubble in place from anywhere; <kbd>Esc</kbd> collapses it back to the bubble.
+- **Global hotkey** — <kbd>⌃⌘V</kbd> expands the bubble in place from anywhere; <kbd>Esc</kbd> collapses it back to the bubble.
 - **Inline selection** — when expanded from an editable field, Clippy labels history entries with numbers. Press an entry's number to paste it without moving the mouse.
 - **Reorder history** — drag entries into the order that works best for you.
 - **Smart rows** — entries are recognized as URLs, emails, code, numbers, or plain text, each with a matching glyph; code renders in monospace.
@@ -63,10 +63,10 @@ To have Clippy start with your Mac, tick **Launch at Login** at the bottom of th
 
 | Action | How |
 |---|---|
-| Expand Clippy | <kbd>⌥⌘V</kbd> from anywhere, or click the 📎 menu bar icon |
+| Expand Clippy | <kbd>⌃⌘V</kbd> from anywhere, or click the 📎 menu bar icon |
 | Move the bubble | Drag it to a new position; Clippy remembers it next time |
 | Paste an entry | Click it |
-| Paste by number | From an editable field, press <kbd>⌥⌘V</kbd>, then the entry number. For entries 10–50, type both digits quickly. |
+| Paste by number | From an editable field, press <kbd>⌃⌘V</kbd>, then the entry number. For entries 10–50, type both digits quickly. |
 | Paste several entries | Click them one after another — the panel stays open |
 | Reorder entries | Drag an entry onto another entry |
 | Collapse the panel | <kbd>Esc</kbd> |
@@ -82,7 +82,7 @@ Two consequences of that design:
 - There's deliberately no search field — a never-key window can't host one.
 - Clicking elsewhere doesn't close the panel; that's what makes multi-paste work.
 
-The hotkeys use Carbon's `RegisterEventHotKey`, which needs no special permission and consumes the keystroke so the frontmost app never also receives it. One caveat: while Clippy is running, <kbd>⌥⌘V</kbd> shadows Finder's little-known "Move Item Here" shortcut. If that bothers you, change the combination in `AppDelegate.setupHotKey()`.
+The hotkeys use Carbon's `RegisterEventHotKey`, which needs no special permission and consumes the keystroke so the frontmost app never also receives it. The default is <kbd>⌃⌘V</kbd>; change the combination in `AppDelegate.setupHotKey()` if it conflicts with another app.
 
 ## Privacy
 

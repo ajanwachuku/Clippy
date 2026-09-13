@@ -33,9 +33,9 @@ struct BubbleContentView: View {
         .overlay(alignment: .topTrailing) {
             if !store.items.isEmpty {
                 Text("\(store.items.count)")
-                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .font(.system(size: 10, weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundStyle(.white)
-                    .frame(minWidth: 16, minHeight: 16)
+                    .frame(width: 22, height: 22)
                     .background(Circle().fill(Color.accentColor))
                     .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5))
             }
