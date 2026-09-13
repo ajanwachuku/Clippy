@@ -15,7 +15,6 @@
 
 import SwiftUI
 import AppKit
-import UniformTypeIdentifiers
 
 /// Persistent draggable launcher. The history count updates as the store observes copies.
 struct BubbleContentView: View {
@@ -118,8 +117,6 @@ struct PopoverContentView: View {
 
     @State private var showingClearConfirmation = false
     @State private var launchAtLogin = LoginItem.isEnabled
-    @State private var draggingItem: ClipboardItem?
-    @State private var dropTargetID: ClipboardItem.ID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -209,43 +206,24 @@ struct PopoverContentView: View {
     // MARK: - History
 
     private var historyList: some View {
-        ScrollView {
-            LazyVStack(spacing: 6) {
-                ForEach(Array(store.items.enumerated()), id: \.element.id) { index, item in
-                    ClipboardRow(
-                        item: item,
-                        number: showsNumberHints ? index + 1 : nil,
-                        isDragging: draggingItem?.id == item.id,
-                        isDropTarget: dropTargetID == item.id
-                    ) {
+        List {
+            ForEach(Array(store.items.enumerated()), id: \.element.id) { index, item in
+                ClipboardRow(item: item, number: showsNumberHints ? index + 1 : nil) {
                         onPaste(item)
-                    } onDelete: {
-                        store.delete(item)
-                    }
-                    .onDrag {
-                        draggingItem = item
-                        return NSItemProvider(object: item.id.uuidString as NSString)
-                    }
-                    .onDrop(
-                        of: [UTType.text.identifier],
-                        delegate: ClipboardRowDropDelegate(
-                            target: item,
-                            draggingItem: $draggingItem,
-                            dropTargetID: $dropTargetID,
-                            store: store
-                        )
-                    )
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .scale(scale: 0.92).combined(with: .opacity)
-                    ))
+                } onDelete: {
+                    store.delete(item)
                 }
+                .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
-            .animation(.spring(response: 0.28, dampingFraction: 0.9), value: store.items)
+            .onMove { source, destination in
+                store.move(fromOffsets: source, toOffset: destination)
+            }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .padding(.vertical, 5)
         .scrollIndicators(.never)
     }
 
@@ -305,52 +283,11 @@ struct PopoverContentView: View {
     }
 }
 
-// MARK: - Row
-
-private struct ClipboardRowDropDelegate: DropDelegate {
-    let target: ClipboardItem
-    @Binding var draggingItem: ClipboardItem?
-    @Binding var dropTargetID: ClipboardItem.ID?
-    let store: ClipboardStore
-
-    func dropEntered(info: DropInfo) {
-        guard let draggingItem, draggingItem.id != target.id else { return }
-        guard let sourceIndex = store.items.firstIndex(of: draggingItem),
-              let targetIndex = store.items.firstIndex(of: target) else { return }
-
-        dropTargetID = target.id
-        // A lower target means the dragged row belongs after it; a higher target means
-        // it belongs before it. This lets the row travel fluidly in both directions.
-        let destination = targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-            store.move(draggingItem, toOffset: destination)
-        }
-    }
-
-    func dropExited(info: DropInfo) {
-        if dropTargetID == target.id {
-            dropTargetID = nil
-        }
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggingItem = nil
-        dropTargetID = nil
-        return true
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-}
-
 /// A single clipboard entry rendered as a self-contained, tappable card.
 private struct ClipboardRow: View {
 
     let item: ClipboardItem
     let number: Int?
-    let isDragging: Bool
-    let isDropTarget: Bool
     var onPaste: () -> Void
     var onDelete: () -> Void
 
@@ -421,18 +358,14 @@ private struct ClipboardRow: View {
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    isDropTarget ? Color.accentColor.opacity(0.9)
-                        : isHovered ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.06),
-                    lineWidth: isDropTarget ? 2 : 1
+                    isHovered ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.06),
+                    lineWidth: 1
                 )
         )
-        .opacity(isDragging ? 0.58 : 1)
-        .scaleEffect(isDragging ? 0.985 : isHovered ? 1.012 : 1)
+        .scaleEffect(isHovered ? 1.012 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onPaste)
         .onHover { isHovered = $0 }
         .animation(.spring(response: 0.28, dampingFraction: 0.7), value: isHovered)
-        .animation(.spring(response: 0.28, dampingFraction: 0.9), value: isDragging)
-        .animation(.spring(response: 0.28, dampingFraction: 0.9), value: isDropTarget)
     }
 }
