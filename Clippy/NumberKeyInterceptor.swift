@@ -50,7 +50,13 @@ final class NumberKeyInterceptor {
                     return Unmanaged.passUnretained(event)
                 }
 
+                // Item selection uses bare digits only. Never consume a number that is
+                // part of a system or app shortcut, such as ⇧⌘5 for screenshots.
+                let shortcutModifiers: CGEventFlags = [
+                    .maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn
+                ]
                 guard type == .keyDown,
+                      event.flags.intersection(shortcutModifiers).isEmpty,
                       let digit = NumberKeyInterceptor.digit(
                         for: event.getIntegerValueField(.keyboardEventKeycode)
                       ) else {
