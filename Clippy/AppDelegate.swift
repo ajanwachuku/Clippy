@@ -32,7 +32,7 @@ extension Notification.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let savedPanelOriginKey = "savedPanelOrigin"
-    private static let bubbleSize = NSSize(width: 56, height: 56)
+    private static let bubbleSize = NSSize(width: 48, height: 48)
     private static let expandedSize = NSSize(width: 340, height: 460)
 
     private enum PanelMode {
@@ -325,7 +325,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeBubbleContent() -> NSHostingView<BubbleContentView> {
-        NSHostingView(rootView: BubbleContentView(store: store))
+        NSHostingView(rootView: BubbleContentView(store: store) { [weak self] in
+            self?.expandPanel()
+        })
     }
 
     /// Returns the focused editable element's screen frame, if Accessibility permits it.

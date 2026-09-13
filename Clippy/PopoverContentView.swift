@@ -20,28 +20,87 @@ import UniformTypeIdentifiers
 /// Persistent draggable launcher. The history count updates as the store observes copies.
 struct BubbleContentView: View {
     let store: ClipboardStore
+    let onActivate: () -> Void
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Image("ClippyBubble")
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 56, height: 56)
+                .frame(width: 48, height: 48)
                 .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
 
             if !store.items.isEmpty {
                 Text("\(store.items.count)")
                     .font(.caption2.monospacedDigit().weight(.bold))
                     .foregroundStyle(.white)
-                    .frame(minWidth: 18, minHeight: 18)
+                    .frame(minWidth: 16, minHeight: 16)
                     .background(Circle().fill(Color.accentColor))
                     .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5))
                     .offset(x: 4, y: -4)
             }
         }
-        .frame(width: 56, height: 56)
-        .background(WindowDragHandle())
+        .frame(width: 48, height: 48)
+        .overlay(BubbleInteractionSurface(onActivate: onActivate))
         .accessibilityLabel("Clippy. \(store.items.count) clipboard items. Drag to reposition.")
+    }
+}
+
+/// Provides one direct manipulation surface for the bubble: a click expands it and a drag
+/// moves the containing panel. SwiftUI backgrounds do not reliably receive AppKit drag events.
+private struct BubbleInteractionSurface: NSViewRepresentable {
+    let onActivate: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onActivate: onActivate) }
+
+    func makeNSView(context: Context) -> BubbleInteractionView {
+        BubbleInteractionView(onActivate: context.coordinator.activate)
+    }
+
+    func updateNSView(_ nsView: BubbleInteractionView, context: Context) {
+        context.coordinator.onActivate = onActivate
+        nsView.onActivate = context.coordinator.activate
+    }
+
+    final class Coordinator {
+        var onActivate: () -> Void
+        init(onActivate: @escaping () -> Void) { self.onActivate = onActivate }
+        func activate() { onActivate() }
+    }
+}
+
+private final class BubbleInteractionView: NSView {
+    var onActivate: () -> Void
+    private var initialMouseLocation = NSPoint.zero
+    private var initialWindowOrigin = NSPoint.zero
+    private var didDrag = false
+
+    init(onActivate: @escaping () -> Void) {
+        self.onActivate = onActivate
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        initialMouseLocation = window.convertPoint(toScreen: event.locationInWindow)
+        initialWindowOrigin = window.frame.origin
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let window else { return }
+        let location = window.convertPoint(toScreen: event.locationInWindow)
+        let deltaX = location.x - initialMouseLocation.x
+        let deltaY = location.y - initialMouseLocation.y
+        if !didDrag, hypot(deltaX, deltaY) < 3 { return }
+        didDrag = true
+        window.setFrameOrigin(NSPoint(x: initialWindowOrigin.x + deltaX, y: initialWindowOrigin.y + deltaY))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if !didDrag { onActivate() }
     }
 }
 
