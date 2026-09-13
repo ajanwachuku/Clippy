@@ -32,6 +32,13 @@ extension Notification.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let savedPanelOriginKey = "savedPanelOrigin"
+    private static let bubbleSize = NSSize(width: 56, height: 56)
+    private static let expandedSize = NSSize(width: 340, height: 460)
+
+    private enum PanelMode {
+        case bubble
+        case expanded
+    }
 
     private var statusItem: NSStatusItem?
     private var panel: ClipboardPanel?
@@ -51,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingNumberSelection = ""
     private var pendingNumberSelectionTask: Task<Void, Never>?
     private var isPlacingPanel = false
+    private var panelMode: PanelMode = .bubble
 
     /// Whether we've already shown the Accessibility prompt this session, so a
     /// permission-less click doesn't reopen System Settings on every paste attempt.
@@ -86,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Fallback so the item is always visible even if the symbol is unavailable.
                 button.title = "📎"
             }
-            button.action = #selector(togglePanel)
+            button.action = #selector(expandPanel)
             button.target = self
         }
         statusItem = item
@@ -94,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPanel() {
         let panel = ClipboardPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 460),
+            contentRect: NSRect(origin: .zero, size: Self.bubbleSize),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -107,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hasShadow = true
         panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.contentView = makePanelContent(showsNumberHints: false)
+        panel.contentView = makeBubbleContent()
 
         self.panel = panel
         NotificationCenter.default.addObserver(
@@ -116,17 +124,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSWindow.didMoveNotification,
             object: panel
         )
+        showBubble()
     }
 
-    /// ⌥⌘V from anywhere toggles the panel, so the user never has to reach for the
-    /// menu bar mid-typing. (Note: this shadows Finder's "Move Item Here" while
+    /// ⌥⌘V expands the persistent bubble from anywhere. (Note: this shadows Finder's "Move Item Here" while
     /// Clippy runs; change the combination here if that bites.)
     private func setupHotKey() {
         HotKeyCenter.shared.register(
             keyCode: kVK_ANSI_V,
             carbonModifiers: cmdKey | optionKey
         ) { [weak self] in
-            self?.togglePanel()
+            self?.expandPanel()
         }
     }
 
@@ -152,47 +160,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func panelDidMove(_ note: Notification) {
         guard !isPlacingPanel, let panel else { return }
+        let bubbleOrigin = panelMode == .bubble
+            ? panel.frame.origin
+            : NSPoint(x: panel.frame.minX, y: panel.frame.maxY - Self.bubbleSize.height)
         UserDefaults.standard.set(
-            [Double(panel.frame.origin.x), Double(panel.frame.origin.y)],
+            [Double(bubbleOrigin.x), Double(bubbleOrigin.y)],
             forKey: Self.savedPanelOriginKey
         )
     }
 
     // MARK: - Panel
 
-    /// Toggles the panel: opens it if hidden, closes it if shown. It closes only via
-    /// this toggle (status item / ⌥⌘V) or Escape — clicking elsewhere (e.g. into your
-    /// document) deliberately leaves it open for multi-paste.
-    @objc private func togglePanel() {
-        guard let panel else { return }
-        if panel.isVisible {
-            closePanel()
-        } else {
-            openPanel()
-        }
-    }
+    /// Expands the bubble in place. Repeated hotkey presses leave the full panel open.
+    @objc private func expandPanel() {
+        guard let panel, panelMode == .bubble else { return }
 
-    private func openPanel() {
-        guard let panel,
-              let button = statusItem?.button,
-              let buttonWindow = button.window else { return }
-
-        let size = panel.frame.size
         let focusedFieldFrame = focusedTextInputFrame()
         let canSelectByNumber = focusedFieldFrame != nil && numberKeyInterceptor.start()
-        let origin = savedPanelOrigin(for: size) ?? panelOrigin(
-            for: focusedFieldFrame,
-            size: size,
-            button: button,
-            buttonWindow: buttonWindow
+        let topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        let origin = clampedOrigin(
+            NSPoint(x: topLeft.x, y: topLeft.y - Self.expandedSize.height),
+            for: Self.expandedSize
         )
         isPlacingPanel = true
-        panel.setFrameOrigin(origin)
+        panel.setFrame(NSRect(origin: origin, size: Self.expandedSize), display: true, animate: true)
         isPlacingPanel = false
         panel.contentView = makePanelContent(showsNumberHints: canSelectByNumber)
+        panelMode = .expanded
 
-        // Order front WITHOUT activating Clippy or making the panel key, so the target app
-        // keeps keyboard focus.
+        // Order front WITHOUT activating Clippy or making the panel key, so the target app keeps focus.
         panel.orderFrontRegardless()
         NotificationCenter.default.post(name: .clippyPanelDidOpen, object: nil)
 
@@ -204,13 +200,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 keyCode: kVK_Escape,
                 carbonModifiers: 0
             ) { [weak self] in
-                self?.closePanel()
+                self?.collapseToBubble()
             }
         }
     }
 
-    private func closePanel() {
-        panel?.orderOut(nil)
+    /// Keeps Clippy available while returning from the full picker to its compact bubble.
+    private func collapseToBubble() {
+        guard let panel, panelMode == .expanded else { return }
+        let topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        let origin = clampedOrigin(
+            NSPoint(x: topLeft.x, y: topLeft.y - Self.bubbleSize.height),
+            for: Self.bubbleSize
+        )
+        isPlacingPanel = true
+        panel.setFrame(NSRect(origin: origin, size: Self.bubbleSize), display: true, animate: true)
+        isPlacingPanel = false
+        panel.contentView = makeBubbleContent()
+        panelMode = .bubble
         if let id = escapeHotKeyID {
             HotKeyCenter.shared.unregister(id)
             escapeHotKeyID = nil
@@ -225,9 +232,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Places the item back on the pasteboard and pastes it into the previous app.
     ///
-    /// The panel is left open so several items can be pasted in a row; it closes only via
-    /// the status-item toggle.
-    private func paste(_ item: ClipboardItem, closePanelAfterPaste: Bool = false) {
+    /// The panel remains open so several items can be pasted in a row; Escape collapses it.
+    private func paste(_ item: ClipboardItem) {
         // Always make the selection the current clipboard content first, so even
         // without the Accessibility permission a click still "copies" the item and
         // the user can ⌘V manually. Suppress so the monitor ignores our own write.
@@ -247,10 +253,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let targetApp = previousApp else { return }
-
-        if closePanelAfterPaste {
-            closePanel()
-        }
 
         Task {
             // The panel never took focus, so the target is normally already frontmost and
@@ -312,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingNumberSelectionTask = nil
         pendingNumberSelection = ""
         guard store.items.indices.contains(index) else { return }
-        paste(store.items[index], closePanelAfterPaste: true)
+        paste(store.items[index])
     }
 
     private func makePanelContent(showsNumberHints: Bool) -> NSHostingView<PopoverContentView> {
@@ -320,6 +322,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.paste(item)
         }
         return NSHostingView(rootView: content)
+    }
+
+    private func makeBubbleContent() -> NSHostingView<BubbleContentView> {
+        NSHostingView(rootView: BubbleContentView(store: store))
     }
 
     /// Returns the focused editable element's screen frame, if Accessibility permits it.
@@ -371,64 +377,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func panelOrigin(
-        for focusedFieldFrame: NSRect?,
-        size: NSSize,
-        button: NSStatusBarButton,
-        buttonWindow: NSWindow
-    ) -> NSPoint {
-        if let focusedFieldFrame,
-           let screen = NSScreen.screens.first(where: { $0.frame.intersects(focusedFieldFrame) }) {
-            let visible = screen.visibleFrame
-            let inset: CGFloat = 8
-            let rightGap: CGFloat = 100
-            let adjacentGap: CGFloat = 16
-            let centeredY = min(
-                max(focusedFieldFrame.midY - size.height / 2, visible.minY + inset),
-                visible.maxY - size.height - inset
-            )
-
-            // Prefer the requested right-side placement. Its horizontal gap means the
-            // panel never covers the field, even when the field is very tall.
-            let rightX = focusedFieldFrame.maxX + rightGap
-            if rightX + size.width <= visible.maxX - inset {
-                return NSPoint(x: rightX, y: centeredY)
-            }
-
-            // If there is no room at the side, use a vertically separate placement.
-            // Each candidate is fully outside the field rather than merely clamped near it.
-            let centeredX = min(
-                max(focusedFieldFrame.midX - size.width / 2, visible.minX + inset),
-                visible.maxX - size.width - inset
-            )
-            let belowY = focusedFieldFrame.minY - size.height - adjacentGap
-            if belowY >= visible.minY + inset {
-                return NSPoint(x: centeredX, y: belowY)
-            }
-
-            let aboveY = focusedFieldFrame.maxY + adjacentGap
-            if aboveY + size.height <= visible.maxY - inset {
-                return NSPoint(x: centeredX, y: aboveY)
-            }
-
-            let leftX = focusedFieldFrame.minX - size.width - adjacentGap
-            if leftX >= visible.minX + inset {
-                return NSPoint(x: leftX, y: centeredY)
-            }
+    private func showBubble() {
+        guard let panel else { return }
+        let defaultOrigin: NSPoint
+        if let visible = NSScreen.main?.visibleFrame {
+            defaultOrigin = NSPoint(x: visible.maxX - Self.bubbleSize.width - 20, y: visible.minY + 20)
+        } else {
+            defaultOrigin = .zero
         }
+        let origin = savedPanelOrigin(for: Self.bubbleSize) ?? defaultOrigin
+        isPlacingPanel = true
+        panel.setFrame(NSRect(origin: origin, size: Self.bubbleSize), display: true)
+        isPlacingPanel = false
+        panel.orderFrontRegardless()
+    }
 
-        // Accessibility may be unavailable or the focused control may not be editable.
-        // Retain the familiar menu-bar placement in those cases.
-        let buttonRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        let screen = buttonWindow.screen ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? .zero
+    private func clampedOrigin(_ origin: NSPoint, for size: NSSize) -> NSPoint {
+        let screen = NSScreen.screens.first(where: { $0.frame.intersects(NSRect(origin: origin, size: size)) })
+            ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return origin }
         return NSPoint(
-            x: min(max(buttonRect.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8),
-            y: buttonRect.minY - size.height - 6
+            x: min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8),
+            y: min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)
         )
     }
 
-    /// Restores a manually dragged position and keeps it visible after a display change.
+    /// Restores a manually dragged bubble position and keeps it visible after a display change.
     private func savedPanelOrigin(for size: NSSize) -> NSPoint? {
         guard let values = UserDefaults.standard.array(forKey: Self.savedPanelOriginKey),
               values.count == 2,

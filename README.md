@@ -18,8 +18,10 @@ Built with Swift, SwiftUI, and AppKit. No dependencies, no accounts, no network 
 - **Clipboard history** — your last 50 text snippets, persisted across restarts and reboots.
 - **Click to paste** — clicking an entry pastes it directly into the app you were just using.
 - **Multi-paste** — the panel deliberately stays open after a paste, so you can insert several entries in sequence.
-- **Global hotkey** — <kbd>⌥⌘V</kbd> opens or closes the panel from anywhere; <kbd>Esc</kbd> closes it.
-- **Inline selection** — when opened from an editable field, Clippy appears beside that field and labels history entries with numbers. Press an entry's number to paste it without moving the mouse.
+- **Persistent bubble** — a draggable Clippy bubble stays on screen, with a live count of saved clipboard items. Its position is remembered between launches.
+- **Global hotkey** — <kbd>⌥⌘V</kbd> expands the bubble in place from anywhere; <kbd>Esc</kbd> collapses it back to the bubble.
+- **Inline selection** — when expanded from an editable field, Clippy labels history entries with numbers. Press an entry's number to paste it without moving the mouse.
+- **Reorder history** — drag entries into the order that works best for you.
 - **Smart rows** — entries are recognized as URLs, emails, code, numbers, or plain text, each with a matching glyph; code renders in monospace.
 - **De-duplication** — re-copying something already in your history moves it to the top instead of storing it twice.
 - **Password-aware** — copies that password managers mark as concealed or transient (the [nspasteboard.org](http://nspasteboard.org) convention, used by 1Password and friends) are never recorded.
@@ -37,7 +39,7 @@ cd Clippy
 open Clippy.xcodeproj
 ```
 
-Then press <kbd>⌘R</kbd> in Xcode. Clippy appears as a 📎 in your menu bar — there's no Dock icon and no window, that's all of it.
+Then press <kbd>⌘R</kbd> in Xcode. Clippy appears as a draggable bubble and a 📎 menu bar icon — there's no Dock icon.
 
 That's enough to try it out. For daily use, install it properly: in Xcode choose **Product → Show Build Folder in Finder**, drag `Clippy.app` into **Applications**, and launch it from there. (An app run via <kbd>⌘R</kbd> lives in Xcode's DerivedData folder, which Xcode may clean out later — bad news if you've set it to launch at login.)
 
@@ -61,11 +63,13 @@ To have Clippy start with your Mac, tick **Launch at Login** at the bottom of th
 
 | Action | How |
 |---|---|
-| Open / close the panel | <kbd>⌥⌘V</kbd> from anywhere, or click the 📎 menu bar icon |
+| Expand Clippy | <kbd>⌥⌘V</kbd> from anywhere, or click the 📎 menu bar icon |
+| Move the bubble | Drag it to a new position; Clippy remembers it next time |
 | Paste an entry | Click it |
 | Paste by number | From an editable field, press <kbd>⌥⌘V</kbd>, then the entry number. For entries 10–50, type both digits quickly. |
 | Paste several entries | Click them one after another — the panel stays open |
-| Close the panel | <kbd>Esc</kbd>, <kbd>⌥⌘V</kbd>, or the menu bar icon |
+| Reorder entries | Drag an entry onto another entry |
+| Collapse the panel | <kbd>Esc</kbd> |
 | Delete an entry | Hover over it, click the ✕ |
 | Clear everything | The trash icon in the header |
 

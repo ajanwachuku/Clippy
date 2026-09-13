@@ -15,6 +15,35 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
+
+/// Persistent draggable launcher. The history count updates as the store observes copies.
+struct BubbleContentView: View {
+    let store: ClipboardStore
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Image("ClippyBubble")
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 56, height: 56)
+                .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
+
+            if !store.items.isEmpty {
+                Text("\(store.items.count)")
+                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(Circle().fill(Color.accentColor))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5))
+                    .offset(x: 4, y: -4)
+            }
+        }
+        .frame(width: 56, height: 56)
+        .background(WindowDragHandle())
+        .accessibilityLabel("Clippy. \(store.items.count) clipboard items. Drag to reposition.")
+    }
+}
 
 /// The clipboard history list, hover actions, and footer controls.
 struct PopoverContentView: View {
@@ -29,6 +58,7 @@ struct PopoverContentView: View {
 
     @State private var showingClearConfirmation = false
     @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var draggingItem: ClipboardItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -125,6 +155,18 @@ struct PopoverContentView: View {
                     } onDelete: {
                         store.delete(item)
                     }
+                    .onDrag {
+                        draggingItem = item
+                        return NSItemProvider(object: item.id.uuidString as NSString)
+                    }
+                    .onDrop(
+                        of: [UTType.text.identifier],
+                        delegate: ClipboardRowDropDelegate(
+                            target: item,
+                            draggingItem: $draggingItem,
+                            store: store
+                        )
+                    )
                     .transition(.asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
                         removal: .scale(scale: 0.92).combined(with: .opacity)
@@ -206,6 +248,26 @@ private struct WindowDragHandle: NSViewRepresentable {
 private final class DragHandleView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.performDrag(with: event)
+    }
+}
+
+private struct ClipboardRowDropDelegate: DropDelegate {
+    let target: ClipboardItem
+    @Binding var draggingItem: ClipboardItem?
+    let store: ClipboardStore
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingItem, draggingItem.id != target.id else { return }
+        store.move(draggingItem, before: target)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingItem = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 

@@ -70,6 +70,20 @@ final class ClipboardStore {
         save()
     }
 
+    /// Moves an entry directly before another entry, preserving the history order elsewhere.
+    func move(_ item: ClipboardItem, before target: ClipboardItem) {
+        guard item.id != target.id,
+              let sourceIndex = items.firstIndex(of: item) else { return }
+
+        items.remove(at: sourceIndex)
+        guard let destinationIndex = items.firstIndex(of: target) else {
+            items.insert(item, at: sourceIndex)
+            return
+        }
+        items.insert(item, at: destinationIndex)
+        save()
+    }
+
     // MARK: - Persistence
 
     private func load() {
