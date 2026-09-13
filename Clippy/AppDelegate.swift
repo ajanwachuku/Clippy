@@ -180,8 +180,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func expandPanel() {
         guard let panel, panelMode == .bubble else { return }
 
-        let focusedFieldFrame = focusedTextInputFrame()
-        let canSelectByNumber = focusedFieldFrame != nil && numberKeyInterceptor.start()
+        // Browser and embedded-web text fields do not consistently expose an
+        // Accessibility focused element. Number labels and number selection therefore
+        // stay available for every expansion, not only for native text fields.
+        _ = numberKeyInterceptor.start()
         bubbleOrigin = panel.frame.origin
         let topLeft = NSPoint(x: bubbleOrigin.x, y: bubbleOrigin.y + Self.bubbleSize.height)
         let origin = clampedOrigin(
@@ -192,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.setFrame(NSRect(origin: origin, size: Self.expandedSize), display: true, animate: false)
         isPlacingPanel = false
         panel.hasShadow = true
-        panel.contentView = makePanelContent(showsNumberHints: canSelectByNumber)
+        panel.contentView = makePanelContent(showsNumberHints: true)
         panelMode = .expanded
 
         // Order front WITHOUT activating Clippy or making the panel key, so the target app keeps focus.
@@ -334,55 +336,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSHostingView(rootView: BubbleContentView(store: store) { [weak self] in
             self?.expandPanel()
         })
-    }
-
-    /// Returns the focused editable element's screen frame, if Accessibility permits it.
-    private func focusedTextInputFrame() -> NSRect? {
-        guard AccessibilityPermission.isTrusted else { return nil }
-
-        let systemWide = AXUIElementCreateSystemWide()
-        var focusedValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            systemWide,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedValue
-        ) == .success,
-        let focusedElement = focusedValue as! AXUIElement? else {
-            return nil
-        }
-
-        var roleValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(focusedElement, kAXRoleAttribute as CFString, &roleValue) == .success,
-              let role = roleValue as? String,
-              [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role) else {
-            return nil
-        }
-
-        var positionValue: CFTypeRef?
-        var sizeValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(focusedElement, kAXPositionAttribute as CFString, &positionValue) == .success,
-              AXUIElementCopyAttributeValue(focusedElement, kAXSizeAttribute as CFString, &sizeValue) == .success,
-              let positionAXValue = positionValue as! AXValue?,
-              let sizeAXValue = sizeValue as! AXValue? else {
-            return nil
-        }
-
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard AXValueGetValue(positionAXValue, .cgPoint, &position),
-              AXValueGetValue(sizeAXValue, .cgSize, &size),
-              let mainScreen = NSScreen.main else {
-            return nil
-        }
-
-        // Accessibility coordinates originate at the upper-left of the main display;
-        // AppKit screen coordinates originate at its lower-left.
-        return NSRect(
-            x: position.x,
-            y: mainScreen.frame.maxY - position.y - size.height,
-            width: size.width,
-            height: size.height
-        )
     }
 
     private func showBubble() {
