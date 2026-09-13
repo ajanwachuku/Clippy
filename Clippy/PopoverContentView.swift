@@ -41,41 +41,41 @@ struct BubbleContentView: View {
                     .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5))
             }
         }
-        .overlay(BubbleInteractionSurface(onActivate: onActivate))
+        .overlay(PanelDragInteractionSurface(onActivate: onActivate))
         .accessibilityLabel("Clippy. \(store.items.count) clipboard items. Drag to reposition.")
     }
 }
 
 /// Provides one direct manipulation surface for the bubble: a click expands it and a drag
 /// moves the containing panel. SwiftUI backgrounds do not reliably receive AppKit drag events.
-private struct BubbleInteractionSurface: NSViewRepresentable {
-    let onActivate: () -> Void
+private struct PanelDragInteractionSurface: NSViewRepresentable {
+    let onActivate: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(onActivate: onActivate) }
 
-    func makeNSView(context: Context) -> BubbleInteractionView {
-        BubbleInteractionView(onActivate: context.coordinator.activate)
+    func makeNSView(context: Context) -> PanelDragInteractionView {
+        PanelDragInteractionView(onActivate: context.coordinator.activate)
     }
 
-    func updateNSView(_ nsView: BubbleInteractionView, context: Context) {
+    func updateNSView(_ nsView: PanelDragInteractionView, context: Context) {
         context.coordinator.onActivate = onActivate
         nsView.onActivate = context.coordinator.activate
     }
 
     final class Coordinator {
-        var onActivate: () -> Void
-        init(onActivate: @escaping () -> Void) { self.onActivate = onActivate }
-        func activate() { onActivate() }
+        var onActivate: (() -> Void)?
+        init(onActivate: (() -> Void)?) { self.onActivate = onActivate }
+        func activate() { onActivate?() }
     }
 }
 
-private final class BubbleInteractionView: NSView {
-    var onActivate: () -> Void
+private final class PanelDragInteractionView: NSView {
+    var onActivate: (() -> Void)?
     private var initialMouseLocation = NSPoint.zero
     private var initialWindowOrigin = NSPoint.zero
     private var didDrag = false
 
-    init(onActivate: @escaping () -> Void) {
+    init(onActivate: (() -> Void)?) {
         self.onActivate = onActivate
         super.init(frame: .zero)
     }
@@ -100,7 +100,7 @@ private final class BubbleInteractionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if !didDrag { onActivate() }
+        if !didDrag { onActivate?() }
     }
 }
 
@@ -114,6 +114,8 @@ struct PopoverContentView: View {
 
     /// Invoked when a row is tapped; the app delegate performs the paste.
     var onPaste: (ClipboardItem) -> Void
+    /// Returns the full picker to its persistent bubble.
+    var onCollapse: () -> Void
 
     @State private var showingClearConfirmation = false
     @State private var launchAtLogin = LoginItem.isEnabled
@@ -161,6 +163,7 @@ struct PopoverContentView: View {
                         .fill(Color.accentColor.gradient)
                         .shadow(color: Color.accentColor.opacity(0.35), radius: 3, y: 1)
                 )
+                .overlay(PanelDragInteractionSurface(onActivate: onCollapse))
 
             Text("Clippy")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -200,7 +203,7 @@ struct PopoverContentView: View {
         .padding(.top, 13)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity)
-        .background(WindowDragHandle())
+        .background(PanelDragInteractionSurface(onActivate: nil))
     }
 
     // MARK: - History
@@ -296,19 +299,6 @@ struct PopoverContentView: View {
 }
 
 // MARK: - Row
-
-/// A transparent AppKit view behind the header that turns a drag into a panel drag.
-/// Header controls remain above it and keep their normal click behavior.
-private struct WindowDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> DragHandleView { DragHandleView() }
-    func updateNSView(_ nsView: DragHandleView, context: Context) { }
-}
-
-private final class DragHandleView: NSView {
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-    }
-}
 
 private struct ClipboardRowDropDelegate: DropDelegate {
     let target: ClipboardItem

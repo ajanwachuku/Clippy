@@ -60,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingNumberSelectionTask: Task<Void, Never>?
     private var isPlacingPanel = false
     private var panelMode: PanelMode = .bubble
+    /// The collapsed bubble's stable location. The expanded frame may be clamped to a
+    /// screen edge, but that temporary frame must never move the bubble.
+    private var bubbleOrigin = NSPoint.zero
 
     /// Whether we've already shown the Accessibility prompt this session, so a
     /// permission-less click doesn't reopen System Settings on every paste attempt.
@@ -161,9 +164,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func panelDidMove(_ note: Notification) {
         guard !isPlacingPanel, let panel else { return }
-        let bubbleOrigin = panelMode == .bubble
+        let updatedBubbleOrigin = panelMode == .bubble
             ? panel.frame.origin
             : NSPoint(x: panel.frame.minX, y: panel.frame.maxY - Self.bubbleSize.height)
+        bubbleOrigin = clampedOrigin(updatedBubbleOrigin, for: Self.bubbleSize)
         UserDefaults.standard.set(
             [Double(bubbleOrigin.x), Double(bubbleOrigin.y)],
             forKey: Self.savedPanelOriginKey
@@ -178,13 +182,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let focusedFieldFrame = focusedTextInputFrame()
         let canSelectByNumber = focusedFieldFrame != nil && numberKeyInterceptor.start()
-        let topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        bubbleOrigin = panel.frame.origin
+        let topLeft = NSPoint(x: bubbleOrigin.x, y: bubbleOrigin.y + Self.bubbleSize.height)
         let origin = clampedOrigin(
             NSPoint(x: topLeft.x, y: topLeft.y - Self.expandedSize.height),
             for: Self.expandedSize
         )
         isPlacingPanel = true
-        panel.setFrame(NSRect(origin: origin, size: Self.expandedSize), display: true, animate: true)
+        panel.setFrame(NSRect(origin: origin, size: Self.expandedSize), display: true, animate: false)
         isPlacingPanel = false
         panel.hasShadow = true
         panel.contentView = makePanelContent(showsNumberHints: canSelectByNumber)
@@ -210,13 +215,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Keeps Clippy available while returning from the full picker to its compact bubble.
     private func collapseToBubble() {
         guard let panel, panelMode == .expanded else { return }
-        let topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
-        let origin = clampedOrigin(
-            NSPoint(x: topLeft.x, y: topLeft.y - Self.bubbleSize.height),
-            for: Self.bubbleSize
-        )
         isPlacingPanel = true
-        panel.setFrame(NSRect(origin: origin, size: Self.bubbleSize), display: true, animate: true)
+        panel.setFrame(NSRect(origin: bubbleOrigin, size: Self.bubbleSize), display: true, animate: false)
         isPlacingPanel = false
         panel.hasShadow = false
         panel.contentView = makeBubbleContent()
@@ -321,9 +321,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makePanelContent(showsNumberHints: Bool) -> NSHostingView<PopoverContentView> {
-        let content = PopoverContentView(store: store, showsNumberHints: showsNumberHints) { [weak self] item in
-            self?.paste(item)
-        }
+        let content = PopoverContentView(
+            store: store,
+            showsNumberHints: showsNumberHints,
+            onPaste: { [weak self] item in self?.paste(item) },
+            onCollapse: { [weak self] in self?.collapseToBubble() }
+        )
         return NSHostingView(rootView: content)
     }
 
@@ -391,6 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defaultOrigin = .zero
         }
         let origin = savedPanelOrigin(for: Self.bubbleSize) ?? defaultOrigin
+        bubbleOrigin = origin
         isPlacingPanel = true
         panel.setFrame(NSRect(origin: origin, size: Self.bubbleSize), display: true)
         isPlacingPanel = false
