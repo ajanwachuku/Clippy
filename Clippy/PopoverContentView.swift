@@ -21,6 +21,9 @@ struct PopoverContentView: View {
 
     let store: ClipboardStore
 
+    /// Shows the keyboard-selection labels when the panel was opened from an editable field.
+    let showsNumberHints: Bool
+
     /// Invoked when a row is tapped; the app delegate performs the paste.
     var onPaste: (ClipboardItem) -> Void
 
@@ -114,8 +117,8 @@ struct PopoverContentView: View {
     private var historyList: some View {
         ScrollView {
             LazyVStack(spacing: 6) {
-                ForEach(store.items) { item in
-                    ClipboardRow(item: item) {
+                ForEach(Array(store.items.enumerated()), id: \.element.id) { index, item in
+                    ClipboardRow(item: item, number: showsNumberHints ? index + 1 : nil) {
                         onPaste(item)
                     } onDelete: {
                         store.delete(item)
@@ -195,6 +198,7 @@ struct PopoverContentView: View {
 private struct ClipboardRow: View {
 
     let item: ClipboardItem
+    let number: Int?
     var onPaste: () -> Void
     var onDelete: () -> Void
 
@@ -204,6 +208,17 @@ private struct ClipboardRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
+            if let number {
+                Text("\(number)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(number <= 9 ? Color.accentColor : Color.secondary)
+                    .frame(width: 16, height: 16)
+                    .padding(.top, 1)
+                    .accessibilityLabel(number <= 9
+                        ? "Item \(number). Press \(number) to paste"
+                        : "Item \(number). Type \(number) to paste")
+            }
+
             // Content-type glyph.
             Image(systemName: kind.symbol)
                 .font(.system(size: 12, weight: .medium))

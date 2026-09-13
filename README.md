@@ -19,6 +19,7 @@ Built with Swift, SwiftUI, and AppKit. No dependencies, no accounts, no network 
 - **Click to paste** — clicking an entry pastes it directly into the app you were just using.
 - **Multi-paste** — the panel deliberately stays open after a paste, so you can insert several entries in sequence.
 - **Global hotkey** — <kbd>⌥⌘V</kbd> opens or closes the panel from anywhere; <kbd>Esc</kbd> closes it.
+- **Inline selection** — when opened from an editable field, Clippy appears beside that field and labels history entries with numbers. Press an entry's number to paste it without moving the mouse.
 - **Smart rows** — entries are recognized as URLs, emails, code, numbers, or plain text, each with a matching glyph; code renders in monospace.
 - **De-duplication** — re-copying something already in your history moves it to the top instead of storing it twice.
 - **Password-aware** — copies that password managers mark as concealed or transient (the [nspasteboard.org](http://nspasteboard.org) convention, used by 1Password and friends) are never recorded.
@@ -62,6 +63,7 @@ To have Clippy start with your Mac, tick **Launch at Login** at the bottom of th
 |---|---|
 | Open / close the panel | <kbd>⌥⌘V</kbd> from anywhere, or click the 📎 menu bar icon |
 | Paste an entry | Click it |
+| Paste by number | From an editable field, press <kbd>⌥⌘V</kbd>, then the entry number. For entries 10–50, type both digits quickly. |
 | Paste several entries | Click them one after another — the panel stays open |
 | Close the panel | <kbd>Esc</kbd>, <kbd>⌥⌘V</kbd>, or the menu bar icon |
 | Delete an entry | Hover over it, click the ✕ |

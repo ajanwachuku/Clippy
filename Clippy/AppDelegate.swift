@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
 import SwiftUI
 
@@ -40,6 +41,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Escape-to-close hot key, registered only while the panel is visible.
     private var escapeHotKeyID: UInt32?
+
+    /// Consumes numeric selection while the panel is presented from a text input.
+    private lazy var numberKeyInterceptor = NumberKeyInterceptor { [weak self] digit in
+        self?.selectNumberedItem(with: digit)
+    }
+    private var pendingNumberSelection = ""
+    private var pendingNumberSelectionTask: Task<Void, Never>?
 
     /// Whether we've already shown the Accessibility prompt this session, so a
     /// permission-less click doesn't reopen System Settings on every paste attempt.
@@ -82,10 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPanel() {
-        let content = PopoverContentView(store: store) { [weak self] item in
-            self?.paste(item)
-        }
-
         let panel = ClipboardPanel(
             contentRect: NSRect(x: 0, y: 0, width: 340, height: 460),
             styleMask: [.nonactivatingPanel, .borderless],
@@ -100,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hasShadow = true
         panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.contentView = NSHostingView(rootView: content)
+        panel.contentView = makePanelContent(showsNumberHints: false)
 
         self.panel = panel
     }
@@ -156,18 +160,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let button = statusItem?.button,
               let buttonWindow = button.window else { return }
 
-        // Position the panel just below the status item, clamped to the screen.
-        let buttonRectOnScreen = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         let size = panel.frame.size
-        var origin = NSPoint(
-            x: buttonRectOnScreen.midX - size.width / 2,
-            y: buttonRectOnScreen.minY - size.height - 6
+        let focusedFieldFrame = focusedTextInputFrame()
+        let canSelectByNumber = focusedFieldFrame != nil && numberKeyInterceptor.start()
+        let origin = panelOrigin(
+            for: focusedFieldFrame,
+            size: size,
+            button: button,
+            buttonWindow: buttonWindow
         )
-        if let screen = buttonWindow.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
-        }
         panel.setFrameOrigin(origin)
+        panel.contentView = makePanelContent(showsNumberHints: canSelectByNumber)
 
         // Order front WITHOUT activating Clippy or making the panel key, so the target app
         // keeps keyboard focus.
@@ -193,6 +196,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HotKeyCenter.shared.unregister(id)
             escapeHotKeyID = nil
         }
+        numberKeyInterceptor.stop()
+        pendingNumberSelectionTask?.cancel()
+        pendingNumberSelectionTask = nil
+        pendingNumberSelection = ""
     }
 
     // MARK: - Paste
@@ -201,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// The panel is left open so several items can be pasted in a row; it closes only via
     /// the status-item toggle.
-    private func paste(_ item: ClipboardItem) {
+    private func paste(_ item: ClipboardItem, closePanelAfterPaste: Bool = false) {
         // Always make the selection the current clipboard content first, so even
         // without the Accessibility permission a click still "copies" the item and
         // the user can ⌘V manually. Suppress so the monitor ignores our own write.
@@ -221,6 +228,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let targetApp = previousApp else { return }
+
+        if closePanelAfterPaste {
+            closePanel()
+        }
 
         Task {
             // The panel never took focus, so the target is normally already frontmost and
@@ -242,5 +253,135 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - Inline selection
+
+    /// Resolves single- and multi-digit positions. Single digits wait briefly only when
+    /// they could be the start of a later item (for example, 1 might become 10).
+    private func selectNumberedItem(with digit: Int) {
+        guard panel?.isVisible == true else { return }
+
+        let candidate = pendingNumberSelection + String(digit)
+        guard let position = Int(candidate), store.items.indices.contains(position - 1) else {
+            pendingNumberSelection = ""
+            pendingNumberSelectionTask?.cancel()
+            pendingNumberSelectionTask = nil
+            return
+        }
+
+        pendingNumberSelection = candidate
+        pendingNumberSelectionTask?.cancel()
+
+        // If an item with this number followed by another digit exists, wait for it.
+        // Otherwise paste immediately, preserving the quick one-key flow for 2–9.
+        guard store.items.count >= position * 10 else {
+            pasteNumberedItem(at: position - 1)
+            return
+        }
+
+        pendingNumberSelectionTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self,
+                  self.pendingNumberSelection == candidate else { return }
+            self.pasteNumberedItem(at: position - 1)
+        }
+    }
+
+    private func pasteNumberedItem(at index: Int) {
+        pendingNumberSelectionTask?.cancel()
+        pendingNumberSelectionTask = nil
+        pendingNumberSelection = ""
+        guard store.items.indices.contains(index) else { return }
+        paste(store.items[index], closePanelAfterPaste: true)
+    }
+
+    private func makePanelContent(showsNumberHints: Bool) -> NSHostingView<PopoverContentView> {
+        let content = PopoverContentView(store: store, showsNumberHints: showsNumberHints) { [weak self] item in
+            self?.paste(item)
+        }
+        return NSHostingView(rootView: content)
+    }
+
+    /// Returns the focused editable element's screen frame, if Accessibility permits it.
+    private func focusedTextInputFrame() -> NSRect? {
+        guard AccessibilityPermission.isTrusted else { return nil }
+
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedValue
+        ) == .success,
+        let focusedElement = focusedValue as! AXUIElement? else {
+            return nil
+        }
+
+        var roleValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(focusedElement, kAXRoleAttribute as CFString, &roleValue) == .success,
+              let role = roleValue as? String,
+              [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role) else {
+            return nil
+        }
+
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(focusedElement, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(focusedElement, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let positionAXValue = positionValue as! AXValue?,
+              let sizeAXValue = sizeValue as! AXValue? else {
+            return nil
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionAXValue, .cgPoint, &position),
+              AXValueGetValue(sizeAXValue, .cgSize, &size),
+              let mainScreen = NSScreen.main else {
+            return nil
+        }
+
+        // Accessibility coordinates originate at the upper-left of the main display;
+        // AppKit screen coordinates originate at its lower-left.
+        return NSRect(
+            x: position.x,
+            y: mainScreen.frame.maxY - position.y - size.height,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private func panelOrigin(
+        for focusedFieldFrame: NSRect?,
+        size: NSSize,
+        button: NSStatusBarButton,
+        buttonWindow: NSWindow
+    ) -> NSPoint {
+        if let focusedFieldFrame,
+           let screen = NSScreen.screens.first(where: { $0.frame.intersects(focusedFieldFrame) }) {
+            let visible = screen.visibleFrame
+            let inset: CGFloat = 8
+            let below = focusedFieldFrame.minY - size.height - inset
+            let above = focusedFieldFrame.maxY + inset
+            let y = below >= visible.minY + inset
+                ? below
+                : min(above, visible.maxY - size.height - inset)
+            let x = min(
+                max(focusedFieldFrame.minX, visible.minX + inset),
+                visible.maxX - size.width - inset
+            )
+            return NSPoint(x: x, y: max(y, visible.minY + inset))
+        }
+
+        // Accessibility may be unavailable or the focused control may not be editable.
+        // Retain the familiar menu-bar placement in those cases.
+        let buttonRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let screen = buttonWindow.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? .zero
+        return NSPoint(
+            x: min(max(buttonRect.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8),
+            y: buttonRect.minY - size.height - 6
+        )
     }
 }
