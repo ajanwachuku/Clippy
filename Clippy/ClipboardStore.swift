@@ -70,20 +70,15 @@ final class ClipboardStore {
         save()
     }
 
-    /// Reorders entries using the same source/destination semantics as SwiftUI's native List.
-    func move(fromOffsets source: IndexSet, toOffset destination: Int) {
-        guard !source.isEmpty else { return }
+    /// Moves an entry to an offset in the pre-move list. This is the same convention as
+    /// SwiftUI's `move(fromOffsets:toOffset:)`, so a downward drag lands after its target.
+    func move(_ item: ClipboardItem, toOffset destination: Int) {
+        guard let sourceIndex = items.firstIndex(of: item) else { return }
 
-        let movedItems = source.map { items[$0] }
-        let removedBeforeDestination = source.filter { $0 < destination }.count
-        for index in source.sorted(by: >) {
-            items.remove(at: index)
-        }
-        let insertionIndex = min(
-            max(destination - removedBeforeDestination, 0),
-            items.count
-        )
-        items.insert(contentsOf: movedItems, at: insertionIndex)
+        items.remove(at: sourceIndex)
+        let adjustedDestination = destination > sourceIndex ? destination - 1 : destination
+        let insertionIndex = min(max(adjustedDestination, 0), items.count)
+        items.insert(item, at: insertionIndex)
         save()
     }
 
