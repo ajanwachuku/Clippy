@@ -110,6 +110,8 @@ struct PopoverContentView: View {
         .padding(.horizontal, 14)
         .padding(.top, 13)
         .padding(.bottom, 10)
+        .frame(maxWidth: .infinity)
+        .background(WindowDragHandle())
     }
 
     // MARK: - History
@@ -193,6 +195,19 @@ struct PopoverContentView: View {
 }
 
 // MARK: - Row
+
+/// A transparent AppKit view behind the header that turns a drag into a panel drag.
+/// Header controls remain above it and keep their normal click behavior.
+private struct WindowDragHandle: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragHandleView { DragHandleView() }
+    func updateNSView(_ nsView: DragHandleView, context: Context) { }
+}
+
+private final class DragHandleView: NSView {
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+}
 
 /// A single clipboard entry rendered as a self-contained, tappable card.
 private struct ClipboardRow: View {

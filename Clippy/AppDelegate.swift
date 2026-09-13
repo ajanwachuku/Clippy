@@ -362,16 +362,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let screen = NSScreen.screens.first(where: { $0.frame.intersects(focusedFieldFrame) }) {
             let visible = screen.visibleFrame
             let inset: CGFloat = 8
-            let below = focusedFieldFrame.minY - size.height - inset
-            let above = focusedFieldFrame.maxY + inset
-            let y = below >= visible.minY + inset
-                ? below
-                : min(above, visible.maxY - size.height - inset)
-            let x = min(
-                max(focusedFieldFrame.minX, visible.minX + inset),
+            let rightGap: CGFloat = 100
+            let adjacentGap: CGFloat = 16
+            let centeredY = min(
+                max(focusedFieldFrame.midY - size.height / 2, visible.minY + inset),
+                visible.maxY - size.height - inset
+            )
+
+            // Prefer the requested right-side placement. Its horizontal gap means the
+            // panel never covers the field, even when the field is very tall.
+            let rightX = focusedFieldFrame.maxX + rightGap
+            if rightX + size.width <= visible.maxX - inset {
+                return NSPoint(x: rightX, y: centeredY)
+            }
+
+            // If there is no room at the side, use a vertically separate placement.
+            // Each candidate is fully outside the field rather than merely clamped near it.
+            let centeredX = min(
+                max(focusedFieldFrame.midX - size.width / 2, visible.minX + inset),
                 visible.maxX - size.width - inset
             )
-            return NSPoint(x: x, y: max(y, visible.minY + inset))
+            let belowY = focusedFieldFrame.minY - size.height - adjacentGap
+            if belowY >= visible.minY + inset {
+                return NSPoint(x: centeredX, y: belowY)
+            }
+
+            let aboveY = focusedFieldFrame.maxY + adjacentGap
+            if aboveY + size.height <= visible.maxY - inset {
+                return NSPoint(x: centeredX, y: aboveY)
+            }
+
+            let leftX = focusedFieldFrame.minX - size.width - adjacentGap
+            if leftX >= visible.minX + inset {
+                return NSPoint(x: leftX, y: centeredY)
+            }
         }
 
         // Accessibility may be unavailable or the focused control may not be editable.
