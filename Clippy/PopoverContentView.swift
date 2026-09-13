@@ -28,7 +28,6 @@ struct BubbleContentView: View {
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 48, height: 48)
-                .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
         }
         .frame(width: 56, height: 56)
         .overlay(alignment: .topTrailing) {
