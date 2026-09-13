@@ -120,6 +120,7 @@ struct PopoverContentView: View {
     @State private var showingClearConfirmation = false
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var draggingItem: ClipboardItem?
+    @State private var dropTargetID: ClipboardItem.ID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -212,7 +213,12 @@ struct PopoverContentView: View {
         ScrollView {
             LazyVStack(spacing: 6) {
                 ForEach(Array(store.items.enumerated()), id: \.element.id) { index, item in
-                    ClipboardRow(item: item, number: showsNumberHints ? index + 1 : nil) {
+                    ClipboardRow(
+                        item: item,
+                        number: showsNumberHints ? index + 1 : nil,
+                        isDragging: draggingItem?.id == item.id,
+                        isDropTarget: dropTargetID == item.id
+                    ) {
                         onPaste(item)
                     } onDelete: {
                         store.delete(item)
@@ -226,6 +232,7 @@ struct PopoverContentView: View {
                         delegate: ClipboardRowDropDelegate(
                             target: item,
                             draggingItem: $draggingItem,
+                            dropTargetID: $dropTargetID,
                             store: store
                         )
                     )
@@ -238,6 +245,7 @@ struct PopoverContentView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 12)
+            .animation(.spring(response: 0.28, dampingFraction: 0.9), value: store.items)
         }
         .scrollIndicators(.never)
     }
@@ -303,15 +311,32 @@ struct PopoverContentView: View {
 private struct ClipboardRowDropDelegate: DropDelegate {
     let target: ClipboardItem
     @Binding var draggingItem: ClipboardItem?
+    @Binding var dropTargetID: ClipboardItem.ID?
     let store: ClipboardStore
 
     func dropEntered(info: DropInfo) {
         guard let draggingItem, draggingItem.id != target.id else { return }
-        store.move(draggingItem, before: target)
+        guard let sourceIndex = store.items.firstIndex(of: draggingItem),
+              let targetIndex = store.items.firstIndex(of: target) else { return }
+
+        dropTargetID = target.id
+        // A lower target means the dragged row belongs after it; a higher target means
+        // it belongs before it. This lets the row travel fluidly in both directions.
+        let destination = targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+            store.move(draggingItem, toOffset: destination)
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTargetID == target.id {
+            dropTargetID = nil
+        }
     }
 
     func performDrop(info: DropInfo) -> Bool {
         draggingItem = nil
+        dropTargetID = nil
         return true
     }
 
@@ -325,6 +350,8 @@ private struct ClipboardRow: View {
 
     let item: ClipboardItem
     let number: Int?
+    let isDragging: Bool
+    let isDropTarget: Bool
     var onPaste: () -> Void
     var onDelete: () -> Void
 
@@ -395,14 +422,18 @@ private struct ClipboardRow: View {
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    isHovered ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.06),
-                    lineWidth: 1
+                    isDropTarget ? Color.accentColor.opacity(0.9)
+                        : isHovered ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.06),
+                    lineWidth: isDropTarget ? 2 : 1
                 )
         )
-        .scaleEffect(isHovered ? 1.012 : 1)
+        .opacity(isDragging ? 0.58 : 1)
+        .scaleEffect(isDragging ? 0.985 : isHovered ? 1.012 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture(perform: onPaste)
         .onHover { isHovered = $0 }
         .animation(.spring(response: 0.28, dampingFraction: 0.7), value: isHovered)
+        .animation(.spring(response: 0.28, dampingFraction: 0.9), value: isDragging)
+        .animation(.spring(response: 0.28, dampingFraction: 0.9), value: isDropTarget)
     }
 }

@@ -70,17 +70,15 @@ final class ClipboardStore {
         save()
     }
 
-    /// Moves an entry directly before another entry, preserving the history order elsewhere.
-    func move(_ item: ClipboardItem, before target: ClipboardItem) {
-        guard item.id != target.id,
-              let sourceIndex = items.firstIndex(of: item) else { return }
+    /// Moves an entry to an offset in the pre-move list. This is the same convention as
+    /// SwiftUI's `move(fromOffsets:toOffset:)`, so a downward drag lands after its target.
+    func move(_ item: ClipboardItem, toOffset destination: Int) {
+        guard let sourceIndex = items.firstIndex(of: item) else { return }
 
         items.remove(at: sourceIndex)
-        guard let destinationIndex = items.firstIndex(of: target) else {
-            items.insert(item, at: sourceIndex)
-            return
-        }
-        items.insert(item, at: destinationIndex)
+        let adjustedDestination = destination > sourceIndex ? destination - 1 : destination
+        let insertionIndex = min(max(adjustedDestination, 0), items.count)
+        items.insert(item, at: insertionIndex)
         save()
     }
 
