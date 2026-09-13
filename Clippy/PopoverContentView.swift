@@ -23,13 +23,15 @@ struct BubbleContentView: View {
     let onActivate: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             Image("ClippyBubble")
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 48, height: 48)
                 .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
-
+        }
+        .frame(width: 56, height: 56)
+        .overlay(alignment: .topTrailing) {
             if !store.items.isEmpty {
                 Text("\(store.items.count)")
                     .font(.caption2.monospacedDigit().weight(.bold))
@@ -37,10 +39,8 @@ struct BubbleContentView: View {
                     .frame(minWidth: 16, minHeight: 16)
                     .background(Circle().fill(Color.accentColor))
                     .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5))
-                    .offset(x: 4, y: -4)
             }
         }
-        .frame(width: 48, height: 48)
         .overlay(BubbleInteractionSurface(onActivate: onActivate))
         .accessibilityLabel("Clippy. \(store.items.count) clipboard items. Drag to reposition.")
     }

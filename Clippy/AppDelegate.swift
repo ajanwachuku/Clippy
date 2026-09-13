@@ -32,7 +32,8 @@ extension Notification.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let savedPanelOriginKey = "savedPanelOrigin"
-    private static let bubbleSize = NSSize(width: 48, height: 48)
+    /// The bubble has a 48px visual body plus a transparent 4px inset for its count badge.
+    private static let bubbleSize = NSSize(width: 56, height: 56)
     private static let expandedSize = NSSize(width: 340, height: 460)
 
     private enum PanelMode {
@@ -112,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = makeBubbleContent()
@@ -185,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isPlacingPanel = true
         panel.setFrame(NSRect(origin: origin, size: Self.expandedSize), display: true, animate: true)
         isPlacingPanel = false
+        panel.hasShadow = true
         panel.contentView = makePanelContent(showsNumberHints: canSelectByNumber)
         panelMode = .expanded
 
@@ -216,6 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isPlacingPanel = true
         panel.setFrame(NSRect(origin: origin, size: Self.bubbleSize), display: true, animate: true)
         isPlacingPanel = false
+        panel.hasShadow = false
         panel.contentView = makeBubbleContent()
         panelMode = .bubble
         if let id = escapeHotKeyID {
