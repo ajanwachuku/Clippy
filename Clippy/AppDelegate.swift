@@ -31,6 +31,8 @@ extension Notification.Name {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
+    private static let savedPanelOriginKey = "savedPanelOrigin"
+
     private var statusItem: NSStatusItem?
     private var panel: ClipboardPanel?
     private let store = ClipboardStore()
@@ -48,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private var pendingNumberSelection = ""
     private var pendingNumberSelectionTask: Task<Void, Never>?
+    private var isPlacingPanel = false
 
     /// Whether we've already shown the Accessibility prompt this session, so a
     /// permission-less click doesn't reopen System Settings on every paste attempt.
@@ -107,6 +110,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = makePanelContent(showsNumberHints: false)
 
         self.panel = panel
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(panelDidMove(_:)),
+            name: NSWindow.didMoveNotification,
+            object: panel
+        )
     }
 
     /// ⌥⌘V from anywhere toggles the panel, so the user never has to reach for the
@@ -141,6 +150,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func panelDidMove(_ note: Notification) {
+        guard !isPlacingPanel, let panel else { return }
+        UserDefaults.standard.set(
+            [Double(panel.frame.origin.x), Double(panel.frame.origin.y)],
+            forKey: Self.savedPanelOriginKey
+        )
+    }
+
     // MARK: - Panel
 
     /// Toggles the panel: opens it if hidden, closes it if shown. It closes only via
@@ -163,13 +180,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let size = panel.frame.size
         let focusedFieldFrame = focusedTextInputFrame()
         let canSelectByNumber = focusedFieldFrame != nil && numberKeyInterceptor.start()
-        let origin = panelOrigin(
+        let origin = savedPanelOrigin(for: size) ?? panelOrigin(
             for: focusedFieldFrame,
             size: size,
             button: button,
             buttonWindow: buttonWindow
         )
+        isPlacingPanel = true
         panel.setFrameOrigin(origin)
+        isPlacingPanel = false
         panel.contentView = makePanelContent(showsNumberHints: canSelectByNumber)
 
         // Order front WITHOUT activating Clippy or making the panel key, so the target app
@@ -406,6 +425,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return NSPoint(
             x: min(max(buttonRect.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8),
             y: buttonRect.minY - size.height - 6
+        )
+    }
+
+    /// Restores a manually dragged position and keeps it visible after a display change.
+    private func savedPanelOrigin(for size: NSSize) -> NSPoint? {
+        guard let values = UserDefaults.standard.array(forKey: Self.savedPanelOriginKey),
+              values.count == 2,
+              let x = values[0] as? NSNumber,
+              let y = values[1] as? NSNumber else {
+            return nil
+        }
+
+        let origin = NSPoint(x: x.doubleValue, y: y.doubleValue)
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(origin) }) ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return nil }
+        return NSPoint(
+            x: min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8),
+            y: min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)
         )
     }
 }
